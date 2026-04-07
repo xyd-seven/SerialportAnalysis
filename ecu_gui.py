@@ -326,6 +326,68 @@ class TerminalTextEdit(QTextEdit):
 
         super().wheelEvent(event)
 
+    def contextMenuEvent(self, event):
+        menu = self.createStandardContextMenu()
+        
+        selection = self.textCursor().selectedText()
+        # ★ 补充导入
+        from PyQt6.QtGui import QAction
+        if selection:
+            menu.addSeparator()
+            calc_menu = menu.addMenu("🧮 计算 CRC / 校验和")
+            
+            action_crc16 = QAction("CRC-16 (Modbus)", self)
+            action_crc16.triggered.connect(lambda: self.calculate_checksum(selection, 'crc16_modbus'))
+            calc_menu.addAction(action_crc16)
+            
+            action_xor = QAction("XOR / BCC (8位异或)", self)
+            action_xor.triggered.connect(lambda: self.calculate_checksum(selection, 'xor'))
+            calc_menu.addAction(action_xor)
+            
+            action_sum = QAction("SUM (8位累加底字节)", self)
+            action_sum.triggered.connect(lambda: self.calculate_checksum(selection, 'sum8'))
+            calc_menu.addAction(action_sum)
+
+        menu.exec(event.globalPos())
+
+    def calculate_checksum(self, hex_string, calc_type):
+        try:
+            import re
+            # 自动过滤掉空格、换行、或一些乱七八糟的非 Hex 字符
+            clean_hex = re.sub(r'[^0-9a-fA-F]', '', hex_string)
+            if not clean_hex or len(clean_hex) % 2 != 0:
+                raise ValueError("选中的有效十六进制长度必须是偶数，请检查边缘是否有截断！")
+            
+            data_bytes = bytes.fromhex(clean_hex)
+            if not data_bytes: return
+            
+            result_str = ""
+            if calc_type == 'crc16_modbus':
+                crc = 0xFFFF
+                for b in data_bytes:
+                    crc ^= b
+                    for _ in range(8):
+                        if crc & 1:
+                            crc = (crc >> 1) ^ 0xA001
+                        else:
+                            crc >>= 1
+                result_str = f"HEX (小端低位在前): {crc & 0xFF:02X} {(crc >> 8) & 0xFF:02X}\n" \
+                             f"HEX (大端高位在前): {(crc >> 8) & 0xFF:02X} {crc & 0xFF:02X}\n" \
+                             f"DEC (十进制): {crc}"
+            elif calc_type == 'xor':
+                bcc = 0
+                for b in data_bytes:
+                    bcc ^= b
+                result_str = f"HEX: {bcc:02X}\nDEC: {bcc}"
+            elif calc_type == 'sum8':
+                total = sum(data_bytes) & 0xFF
+                result_str = f"HEX: {total:02X}\nDEC: {total}"
+                
+            QMessageBox.information(self, f"计算完毕 - {calc_type.upper()}", f"一共吸入了 {len(data_bytes)} bytes 有效数据：\n{clean_hex}\n\n👉 结果：\n{result_str}")
+            
+        except Exception as e:
+            QMessageBox.warning(self, "校验无法解析", f"提取出的 Hex 不规范:\n{str(e)}")
+
 
 class AutoScrollTableView(QTableView):
     def __init__(self, main_window, parent=None):
