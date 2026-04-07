@@ -1407,6 +1407,11 @@ class EcuMainWindow(QMainWindow):
         self.combo_filter.currentIndexChanged.connect(self.apply_filter)
         top_bar_layout.addWidget(self.combo_filter)
 
+        self.btn_export_csv = QPushButton("📊 导出报表")
+        self.btn_export_csv.setToolTip("将当前右侧解析出的结果导出为详细的 CSV 大宽表")
+        self.btn_export_csv.clicked.connect(self.export_parsed_csv)
+        top_bar_layout.addWidget(self.btn_export_csv)
+
         top_bar_layout.addStretch()
 
         main_layout.addLayout(top_bar_layout)
@@ -3093,6 +3098,49 @@ class EcuMainWindow(QMainWindow):
         else:
             self.filtered_frames = [f for f in self.all_frames if f['type'] == target_type]
         self.table_model.update_data(self.filtered_frames)
+
+    def export_parsed_csv(self):
+        if not self.filtered_frames:
+            QMessageBox.warning(self, "空数据", "当前没有任何解析数据可以导出！")
+            return
+
+        file_path, _ = QFileDialog.getSaveFileName(self, "导出CSV报表", "ecu_parsed_report.csv", "CSV Files (*.csv)")
+        if not file_path:
+            return
+
+        try:
+            # 1. 动态搜集当前过滤列表里所有的解析字段 (防止由于 JSON 协议变更导致的字段错位)
+            all_keys = set()
+            for frame in self.filtered_frames:
+                all_keys.update(frame.get('data', {}).keys())
+            
+            # 去除一些过于冗长或内部使用的不可展平字段
+            ignore_keys = {'_raw_bytes', 'point_list', 'frame_bytes'}
+            data_keys = sorted(list(all_keys - ignore_keys))
+            
+            headers = ['Seq', 'Direction', 'Type', 'Time'] + data_keys
+
+            with open(file_path, 'w', encoding='utf-8-sig', newline='') as f:
+                writer = csv.writer(f)
+                writer.writerow(headers)
+                
+                for frame in self.filtered_frames:
+                    f_data = frame.get('data', {})
+                    row = [
+                        frame.get('seq', ''),
+                        frame.get('direction', ''),
+                        frame.get('type', ''),
+                        f_data.get('time', f_data.get('timestamp', ''))
+                    ]
+                    # 将动态数据填充，缺失的列自然留空
+                    for k in data_keys:
+                        val = f_data.get(k, '')
+                        row.append(str(val))
+                    writer.writerow(row)
+                    
+            QMessageBox.information(self, "导出成功", f"恭喜！成功导出 {len(self.filtered_frames)} 条解析记录。")
+        except Exception as e:
+            QMessageBox.critical(self, "导出失败", f"导出文件时发生异常:\n{str(e)}")
 
     def on_row_clicked(self, index):
         if not index.isValid(): return
