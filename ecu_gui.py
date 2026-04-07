@@ -326,30 +326,6 @@ class TerminalTextEdit(QTextEdit):
 
         super().wheelEvent(event)
 
-    def contextMenuEvent(self, event):
-        menu = self.createStandardContextMenu()
-        
-        selection = self.textCursor().selectedText()
-        # ★ 补充导入
-        from PyQt6.QtGui import QAction
-        if selection:
-            menu.addSeparator()
-            calc_menu = menu.addMenu("🧮 计算 CRC / 校验和")
-            
-            action_crc16 = QAction("CRC-16 (Modbus)", self)
-            action_crc16.triggered.connect(lambda: self.calculate_checksum(selection, 'crc16_modbus'))
-            calc_menu.addAction(action_crc16)
-            
-            action_xor = QAction("XOR / BCC (8位异或)", self)
-            action_xor.triggered.connect(lambda: self.calculate_checksum(selection, 'xor'))
-            calc_menu.addAction(action_xor)
-            
-            action_sum = QAction("SUM (8位累加底字节)", self)
-            action_sum.triggered.connect(lambda: self.calculate_checksum(selection, 'sum8'))
-            calc_menu.addAction(action_sum)
-
-        menu.exec(event.globalPos())
-
     def calculate_checksum(self, hex_string, calc_type):
         try:
             import re
@@ -3057,9 +3033,64 @@ class EcuMainWindow(QMainWindow):
 
     def on_quick_parse_clicked(self):
         raw_text = self.quick_parse_input.text().strip()
-        if not raw_text or self.decoder is None: return
-        # Quick parse logic skipped for brevity, full logic intact in original file
-        pass
+        from PyQt6.QtWidgets import QMessageBox
+        
+        if not raw_text or self.decoder is None: 
+            QMessageBox.warning(self, "提示", "请输入十六进制流并确保已选择解析协议！")
+            return
+            
+        import re
+        # ==========================================
+        # 🌟 智能脏数据滤除算法 (防混淆)
+        # ==========================================
+        temp_text = raw_text.replace('0x', ' ').replace('0X', ' ')
+        temp_text = re.sub(r'\[.*?\]', ' ', temp_text) # 去除中括号时间戳/序号等
+        temp_text = re.sub(r'\b\d{2}:\d{2}:\d{2}(?:\.\d+)?\b', ' ', temp_text) # 去除纯时间
+        
+        raw_text_no_space = re.sub(r'\s+', '', temp_text)
+        
+        if re.fullmatch(r'[0-9a-fA-F]+', raw_text_no_space):
+            # 1. 如果去掉空格后是由纯 HEX 构成的，直接当作无损数据流处理
+            clean_hex = raw_text_no_space
+        else:
+            # 2. 如果包含杂乱字符 (比如你复制了大段带打印头的 Log: D/HEX nb_send: 0000-000F: 42 44..)
+            # 利用断言，只抓取由非连续字母数字包围的 `2位纯HEX字节` !
+            clean_hex = "".join(re.findall(r'(?<![0-9a-zA-Z])[0-9a-fA-F]{2}(?![0-9a-zA-Z])', temp_text))
+            
+            # 如果极端情况导致提取长度不足或全空，进行最后兜底暴力清洗
+            if len(clean_hex) < 4:
+                clean_hex = re.sub(r'[^0-9a-fA-F]', '', temp_text)
+
+        if not clean_hex or len(clean_hex) % 2 != 0:
+            QMessageBox.warning(self, "解析受阻", "经过智能提取后，没能找到长度完整的偶数位十六进制串！")
+            return
+
+        try:
+            # 由于底层 StreamParser.feed 会强制规范标准 Hexdump 格式（单行截断至最多抽出16字节）
+            # 所以不能简单打成一行，必须按照每 16 个 bytes 分离并分别挂上虚拟地址前缀
+            chunked_hex_lines = []
+            for i in range(0, len(clean_hex), 32):  
+                chunk = clean_hex[i:i+32]
+                spaced_chunk = " ".join([chunk[j:j+2] for j in range(0, len(chunk), 2)])
+                chunked_hex_lines.append(f"00000000: {spaced_chunk}")
+                
+            formatted_hex = "\n".join(chunked_hex_lines)
+            
+            parser = StreamParser(self.decoder)
+            frames = parser.feed(formatted_hex)
+
+            if not frames:
+                QMessageBox.warning(self, "报文格式无效", "正则切片虽成功，但该报文包头/长度不符合当前下发的 JSON 协议定义！")
+                return
+
+            self.all_frames.extend(frames)
+            # 刷新整个下拉框和模型缓存
+            self.on_parse_finished(len(frames))
+            
+            QMessageBox.information(self, "快速解析成功", f"在文本中成功验证并抽取了 {len(frames)} 帧报文，已将其追加到底侧列表最末端。")
+            self.quick_parse_input.clear()
+        except Exception as e:
+            QMessageBox.critical(self, "内核解析崩溃", f"发生未知解析错误: {e}")
 
     def load_file(self):
         """加载离线日志：即使没选协议，也要能打开文件"""
@@ -4053,6 +4084,25 @@ class EcuMainWindow(QMainWindow):
     def show_terminal_menu(self, pos):
         """弹出融合了标准复制和自定义开关的高级右键菜单"""
         menu = self.raw_log_console.createStandardContextMenu()
+        
+        selection = self.raw_log_console.textCursor().selectedText()
+        if selection:
+            from PyQt6.QtGui import QAction
+            menu.addSeparator()
+            calc_menu = menu.addMenu("🧮 计算选区 CRC / 校验和")
+            
+            action_crc16 = QAction("CRC-16 (Modbus)", self)
+            action_crc16.triggered.connect(lambda: self.raw_log_console.calculate_checksum(selection, 'crc16_modbus'))
+            calc_menu.addAction(action_crc16)
+            
+            action_xor = QAction("XOR / BCC (8位异或)", self)
+            action_xor.triggered.connect(lambda: self.raw_log_console.calculate_checksum(selection, 'xor'))
+            calc_menu.addAction(action_xor)
+            
+            action_sum = QAction("SUM (8位累加底字节)", self)
+            action_sum.triggered.connect(lambda: self.raw_log_console.calculate_checksum(selection, 'sum8'))
+            calc_menu.addAction(action_sum)
+
         menu.addSeparator()  # 加一条帅气的分割线
         # 加上我们的极客开关
         menu.addAction(self.action_timestamp)
