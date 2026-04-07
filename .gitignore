@@ -1,0 +1,36 @@
+# 虚拟环境
+.venv/
+venv/
+ENV/
+env/
+
+# PyInstaller 打包生成的临时与产物文件夹
+build/
+dist/
+*.spec
+
+# 字节码文件与缓存
+__pycache__/
+*.py[cod]
+*$py.class
+*.pyc
+
+# IDE 及编辑器配置
+.vscode/
+.idea/
+*.swp
+.gemini/
+
+# 系统相关
+.DS_Store
+Thumbs.db
+
+# 业务相关的生成日志 (如果不希望追踪的话)
+*.csv
+
+#业务相关JSON文件
+*.json
+
+#软件图标
+*.ico
+*.png
