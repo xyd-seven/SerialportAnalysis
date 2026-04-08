@@ -3516,8 +3516,21 @@ class EcuMainWindow(QMainWindow):
                 self.left_panel.setSizes([int(sum(sizes)*0.7), int(sum(sizes)*0.3)])
 
     def clear_waveform(self, *args):
-        self.wave_data_x.clear()
-        self.wave_data_y.clear()
+        # ==========================================
+        # 🌟 智能变脸引擎：1D折线图 vs 2D雷达盘
+        # ==========================================
+        target_var = self.combo_wave_var.currentText()
+        is_gps = target_var and target_var.startswith("📍")
+
+        # 动态重建缓冲队列机制，分离高低频数据的内存占用
+        from collections import deque
+        if is_gps:
+            self.wave_data_x = deque(maxlen=100000)  # 十万点“无限” GPS 轨迹容量
+            self.wave_data_y = deque(maxlen=100000)
+        else:
+            self.wave_data_x = deque(maxlen=1000)    # 保持普通波形的 1D 极速渲染
+            self.wave_data_y = deque(maxlen=1000)
+
         self.max_drift_m = 0.0
         self.lbl_gps_stats.setText("等待设备定位数据...")
 
@@ -3531,12 +3544,6 @@ class EcuMainWindow(QMainWindow):
         for item in self.radar_circle_items:
             self.plot_widget.removeItem(item)
         self.radar_circle_items.clear()
-
-        # ==========================================
-        # 🌟 智能变脸引擎：1D折线图 vs 2D雷达盘
-        # ==========================================
-        target_var = self.combo_wave_var.currentText()
-        is_gps = target_var and target_var.startswith("📍")
 
         self.plot_widget.setAspectLocked(is_gps)
         self.gps_toolbar_widget.setVisible(is_gps)  # 显隐 GPS 工具栏
