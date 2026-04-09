@@ -1321,7 +1321,7 @@ class EcuMainWindow(QMainWindow):
         # ==========================================
         # 🌟 性能调优：预编译正则表达式 (全局复用，极大降低 CPU 开销)
         # ==========================================
-        self._re_nmea = re.compile(r'(\d{2,4}\.\d+),([NS]),(\d{3,5}\.\d+),([EW])')
+        self._re_nmea = re.compile(r'(\d{4}\.\d{4,}),([NS]),(\d{5}\.\d{4,}),([EW])')
         self._re_kv = re.compile(r'([a-zA-Z0-9_]+)\s*[:=]\s*([-+]?\d*\.?\d+)')
         self._re_err = re.compile(r"(?i)(error|fail|timeout|异常|失败)")
 
@@ -2963,6 +2963,9 @@ class EcuMainWindow(QMainWindow):
         if self.rt_tx_parser: self.rt_tx_parser.buffer.clear()
         if self.rt_rx_parser: self.rt_rx_parser.buffer.clear()
         self.serial_buffer_line = ""
+        # 🌟 彻底解决“灵异倒流”：必须物理清空终极镜像桶，防止搜索/样式切换时原样重绘！
+        if hasattr(self, 'terminal_history'):
+            self.terminal_history.clear()
 
     def toggle_word_wrap(self, checked):
         """智能切换终端的换行模式 (兼容 QAction 布尔值)"""
